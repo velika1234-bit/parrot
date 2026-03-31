@@ -1,9 +1,20 @@
 import { Command } from '../types';
 
 // Parrot Mambo BLE UUIDs
-const MAMBO_SERVICE = '9a66fb00-0800-9191-11e4-012d1540cb8e';
-const COMMAND_CHARACTERISTIC = '9a66fb0a-0800-9191-11e4-012d1540cb8e';
-const PCMD_CHARACTERISTIC = '9a66fb0b-0800-9191-11e4-012d1540cb8e';
+// Different firmware revisions expose control characteristics under either
+// the "fa" or "fb" service tree. We support both to avoid connection failures.
+const MAMBO_SERVICE_CANDIDATES = [
+  '9a66fa00-0800-9191-11e4-012d1540cb8e',
+  '9a66fb00-0800-9191-11e4-012d1540cb8e'
+];
+const COMMAND_CHARACTERISTIC_CANDIDATES = [
+  '9a66fa0a-0800-9191-11e4-012d1540cb8e',
+  '9a66fb0a-0800-9191-11e4-012d1540cb8e'
+];
+const PCMD_CHARACTERISTIC_CANDIDATES = [
+  '9a66fa0b-0800-9191-11e4-012d1540cb8e',
+  '9a66fb0b-0800-9191-11e4-012d1540cb8e'
+];
 const NAVDATA_CHARACTERISTIC = '9a66fb0e-0800-9191-11e4-012d1540cb8e';
 const EVENTDATA_CHARACTERISTIC = '9a66fb0f-0800-9191-11e4-012d1540cb8e';
 
@@ -24,6 +35,36 @@ export class MamboBLE {
   public logs: string[] = [];
   public batteryLevel: number | null = null;
   public flightState: string = 'landed';
+
+  private async getFirstAvailableService(server: BluetoothRemoteGATTServer, uuids: string[]) {
+    for (const uuid of uuids) {
+      try {
+        const service = await server.getPrimaryService(uuid);
+        this.log(`Използва се BLE service: ${uuid}`);
+        return service;
+      } catch (_) {
+        // Try next service candidate
+      }
+    }
+    throw new Error(`Нито една от BLE услугите не е налична (${uuids.join(', ')})`);
+  }
+
+  private async getFirstAvailableCharacteristic(
+    service: BluetoothRemoteGATTService,
+    uuids: string[],
+    label: string
+  ) {
+    for (const uuid of uuids) {
+      try {
+        const characteristic = await service.getCharacteristic(uuid);
+        this.log(`${label}: намерена характеристика ${uuid}`);
+        return characteristic;
+      } catch (_) {
+        // Try next characteristic candidate
+      }
+    }
+    throw new Error(`Липсва характеристика за ${label} (${uuids.join(', ')})`);
+  }
 
   private log(msg: string) {
     const time = new Date().toLocaleTimeString();
@@ -96,9 +137,17 @@ export class MamboBLE {
 
       this.log('ЕТАП 2: Инициализиране на услугите...');
       
-      const service = await server.getPrimaryService(MAMBO_SERVICE);
-      this.characteristic = await service.getCharacteristic(COMMAND_CHARACTERISTIC);
-      this.pcmdCharacteristic = await service.getCharacteristic(PCMD_CHARACTERISTIC);
+      const service = await this.getFirstAvailableService(server, MAMBO_SERVICE_CANDIDATES);
+      this.characteristic = await this.getFirstAvailableCharacteristic(
+        service,
+        COMMAND_CHARACTERISTIC_CANDIDATES,
+        'COMMAND'
+      );
+      this.pcmdCharacteristic = await this.getFirstAvailableCharacteristic(
+        service,
+        PCMD_CHARACTERISTIC_CANDIDATES,
+        'PCMD'
+      );
       
       const setupNotify = async (uuid: string, name: string) => {
         try {
