@@ -1,0 +1,5 @@
+{
+  "name": "Mambo Code Studio",
+  "description": "Студио за програмиране на Parrot Mambo дрон с 3D симулатор и генератор на Python код.",
+  "requestFramePermissions": ["bluetooth", "geolocation"]
+}
